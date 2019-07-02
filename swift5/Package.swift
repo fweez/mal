@@ -27,7 +27,9 @@ let package = Package(
             name: "step1_read_print",
             dependencies: ["FunctionalUtilities"]
         ),
-        
-            
+        .target(
+            name: "step2_eval",
+            dependencies: ["FunctionalUtilities"]
+			)
     ]
 )

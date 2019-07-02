@@ -1,10 +1,11 @@
 import Foundation
 import FunctionalUtilities
 
+typealias ASTStack = [MalType]
 func readString(_ input: String) -> MalType {
-    let initialAST: [MalType] = []
+    let initialStack: ASTStack = []
     let output = (input |> tokenize)
-        .reduce(initialAST, readForm)
+        .reduce(initialStack, readForm)
     guard output.count == 1 else { fatalError() }
     return output.first!
 }
@@ -24,36 +25,30 @@ func tokenize(_ input: String) -> [Token] {
         .map { Token(from: $0) }
 }
 
-func readForm(_ ast: [MalType], _ next: Token) -> [MalType] {
+func readForm(_ stack: ASTStack, _ next: Token) -> ASTStack {
     switch next {
-    case .lparen, .rparen: return readList(ast, next)
-    default: return readAtom(ast, next)
-    }
-}
-
-func readList(_ ast: [MalType], _ next: Token) -> [MalType] {
-    switch next {
+    /// Read List
     case .lparen:
-        return ast + [.unclosedList([])]
+        return stack + [.unclosedList([])]
     case .rparen: // end the last list on the ast and merge it with its parent
-        var ast = ast
-        let this = ast.popLast()!
-        let prev = ast.popLast()
+        var stack = stack
+        let this = stack.popLast()!
+        let prev = stack.popLast()
         switch (prev, this) {
-        case (.some(.unclosedList(let v)), .unclosedList(let w)): return ast + [.unclosedList(v + [.list(w)])]
+        case (.some(.unclosedList(let v)), .unclosedList(let w)):
+            return stack + [.unclosedList(v + [.list(w)])]
         case (.none, .unclosedList(let v)): return [.list(v)]
         default: fatalError()
         }
-    default: fatalError()
-    }
-}
-
-func readAtom(_ ast: [MalType], _ next: Token) -> [MalType] {
-    let nextMalType = MalType(from: next)
-    var ast = ast
-    guard let last = ast.popLast() else {  return [nextMalType] }
-    switch last {
-    case .unclosedList(let v): return ast + [.unclosedList(v + [nextMalType])]
-    default: fatalError()
+        
+    /// Read Atom
+    default:
+        let nextMalType = MalType(from: next)
+        var stack = stack
+        guard let last = stack.popLast() else { return [nextMalType] }
+        switch last {
+        case .unclosedList(let v): return stack + [.unclosedList(v + [nextMalType])]
+        default: fatalError()
+        }
     }
 }
