@@ -1,0 +1,3 @@
+#!/bin/bash
+
+exec swift run --skip-build ${STEP:-stepA_mal} "${@}"
