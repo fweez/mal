@@ -30,6 +30,10 @@ let package = Package(
         .target(
             name: "step2_eval",
             dependencies: ["FunctionalUtilities"]
-			)
+			),
+        .target(
+            name: "step3_env",
+            dependencies: ["FunctionalUtilities"]
+        )
     ]
 )
