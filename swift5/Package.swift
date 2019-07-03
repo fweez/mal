@@ -34,6 +34,10 @@ let package = Package(
         .target(
             name: "step3_env",
             dependencies: ["FunctionalUtilities"]
-        )
+        ),
+        .target(
+            name: "step4_if_fn_do",
+            dependencies: ["FunctionalUtilities"]
+        ),
     ]
 )
