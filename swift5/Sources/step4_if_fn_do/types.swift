@@ -70,7 +70,8 @@ enum MalType {
         case .do: return "do"
         case .if: return "if"
         case .fn: return "fn*"
-        case .closure: return "#<function>"
+        case .closure(parameters: let params, body: let body, environment: _): //return "#<function>"
+            return "#<f\(params) \(body)>"
         }
     }
 }
@@ -109,7 +110,7 @@ extension MalType: Equatable {
         case (.number(let r), .number(let l)): return r == l
         case (.symbol(let r), .symbol(let l)): return r == l
         case (.nil, .nil): return true
-            
+        case (.boolean(let r), .boolean(let l)): return r == l
         default: return false
         }
     }

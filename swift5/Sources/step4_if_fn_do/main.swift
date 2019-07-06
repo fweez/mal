@@ -7,11 +7,8 @@ func READ(_ input: String) -> MalType {
 }
 
 func EVAL(_ input: MalType) -> MalType {
-    var output: MalType
-    (output, replEnvironment) = (input, replEnvironment)
-        |> evaluate
-    
-    return output
+    return (input, replEnvironment) |> evaluate
+        >>> { $0.value }
 }
 
 func PRINT(_ input: MalType) -> String {
@@ -19,6 +16,23 @@ func PRINT(_ input: MalType) -> String {
 }
 
 let rep = READ >>> EVAL >>> PRINT
+
+#if DEBUG
+print("Debug on")
+let tests: [(test: String, expected: String?)] = [
+    ("(def! sumdown (fn* (N) (if (> N 0) (+ N (sumdown  (- N 1))) 0)))", nil),
+    ("(sumdown 1)", "1"),
+    ("(sumdown 2)", "3"),
+]
+
+for (test, expected) in tests {
+    let r = rep(test)
+    print("\(test) -> \(r)")
+    if let e = expected {
+        assert(r == e, "Expected \(e)")
+    }
+}
+#endif
 
 while true {
     print("user> ", separator: "", terminator: "")
