@@ -17,22 +17,23 @@ func PRINT(_ input: MalType) -> String {
 
 let rep = READ >>> EVAL >>> PRINT
 
-#if DEBUG
-print("Debug on")
-let tests: [(test: String, expected: String?)] = [
-    ("(def! sumdown (fn* (N) (if (> N 0) (+ N (sumdown  (- N 1))) 0)))", nil),
-    ("(sumdown 1)", "1"),
-    ("(sumdown 2)", "3"),
-]
-
-for (test, expected) in tests {
-    let r = rep(test)
-    print("\(test) -> \(r)")
-    if let e = expected {
-        assert(r == e, "Expected \(e)")
+func runTests() {
+    print("Running my tests")
+    let tests: [(test: String, expected: String?)] = [
+        ("(- 1 1)", "0"),
+        ("(def! sumdown (fn* (N) (if (> N 0) (+ N (sumdown  (- N 1))) 0)))", nil),
+        ("(sumdown 1)", "1"),
+        ("(sumdown 2)", "3"),
+    ]
+    
+    for (test, expected) in tests {
+        let r = rep(test)
+        print("\(test) -> \(r)")
+        if let e = expected {
+            assert(r == e, "Expected \(e)")
+        }
     }
 }
-#endif
 
 while true {
     print("user> ", separator: "", terminator: "")

@@ -76,11 +76,19 @@ fileprivate func ifTest(_ input: EvalListValues) -> EvalValue {
         |> evaluate
 }
 
+func debugReturn(_ input: EvalValue) -> EvalValue {
+    print("-> \(input.value)")
+    return input
+}
+
 fileprivate func fn(_ input: EvalListValues) -> EvalValue {
     guard input.values.count == 2 else { fatalError() }
-    let params = input.values[0]
-    let body = input.values[1]
-    return (MalType.closure(parameters: params, body: body, environment: input.environment), input.environment)
+    let body = { (parameters: MalType, values: MalType, environment: Environment) -> MalType in
+        return (input.values[1], set(in: environment, binds: parameters, exprs: values))
+            |> evaluate
+            >>> { $0.0 }
+    }
+    return (.fn(parameters: input.values[0], function: body, environment: input.environment), input.environment)
 }
 
 fileprivate func runDo(_ input: EvalListValues) -> EvalValue {
@@ -97,13 +105,9 @@ fileprivate func closure(_ input: EvalValue) -> EvalValue {
             case .list(let evaluatedValues):
                 let closure = evaluatedValues.first!
                 switch closure {
-                case .closure(parameters: let params, body: let body, environment: let closureEnv):
-                    let closed = set(in: closureEnv, binds: params, exprs: .list(Array(evaluatedValues[1...])))
-                    print("Evaluating " + body.debugDescription)
-                    print("In environment: " + closed.description)
-                    return (body, closed)
-                        |> evaluate
-                        >>> { ($0.value, evaluated.environment) }
+                case .fn(parameters: let params, function: let f, environment: let closureEnv):
+//                    print("Calling \(closure) with values \(Array(evaluatedValues[1...]))")
+                    return (f(params, .list(Array(evaluatedValues[1...])), closureEnv), evaluated.environment)
                 default: break
                 }
             default: break
@@ -128,30 +132,15 @@ func apply(_ input: EvalValue) -> EvalValue {
     let first = unevaluatedValues.first!
     let remaining = Array(unevaluatedValues[1...])
     let toProcess = (remaining, input.environment)
-    let f: EvaluationFunction? = get(in: input.environment, key: first)
     
     switch first {
-    case .symbol where f != nil:
-        return toProcess
-            |> { (input: EvalListValues) -> EvalValue in
-                print("evaluating function for \(first)")
-                print("in environment:")
-                print(input.environment.description)
-                return (
-                    input
-                        |> listify
-                        >>> evaluate
-                        >>> f!,
-                    input.environment)
-            }
-    case .symbol:
-        return input |> closure
     case .def: return toProcess |> updateEnvironment
     case .let: return toProcess |> evaluateWithBindings
     case .if: return toProcess |> ifTest
-    case .fn: return toProcess |> fn
     case .do: return toProcess |> runDo
-    default: return input |> closure
+    case .symbol(let s) where s == "fn*": return toProcess |> fn
+    default:
+        return input |> closure
     }
 }
 

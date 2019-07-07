@@ -33,12 +33,11 @@ enum MalType {
     case `nil`
     case `do`
     case `if`
-    case fn
     case boolean(Bool)
     
     indirect case unclosedList([MalType])
     indirect case list([MalType])
-    indirect case closure(parameters: MalType, body: MalType, environment: Environment)
+    indirect case fn(parameters: MalType, function: EvaluationFunction, environment: Environment)
     
     init(from token: Token) {
         switch token {
@@ -59,7 +58,7 @@ enum MalType {
         }
     }
     
-    static let haveAssociatedStrings: [MalType] = [.def, .let, .nil, .do, .if, .fn]
+    static let haveAssociatedStrings: [MalType] = [.def, .let, .nil, .do, .if]
     
     var associatedString: String? {
         switch self {
@@ -69,9 +68,8 @@ enum MalType {
         case .nil: return "nil"
         case .do: return "do"
         case .if: return "if"
-        case .fn: return "fn*"
-        case .closure(parameters: let params, body: let body, environment: _): //return "#<function>"
-            return "#<f\(params) \(body)>"
+        case .fn(parameters: let params, function: _, environment: _):
+            return "#<f\(params)>"
         }
     }
 }
@@ -79,19 +77,19 @@ enum MalType {
 extension MalType: CustomDebugStringConvertible {
     var debugDescription: String {
         switch self {
-        case .def, .let, .nil, .do, .if, .fn, .closure: return associatedString!
+        case .def, .let, .nil, .do, .if, .fn: return associatedString!
         case .symbol(let v): return "\(v)"
         case .number(let v): return "\(v)"
         case .list(let values):
             return "(" + values
                 .map { (t: MalType) -> String in t.debugDescription }
-                .joined(separator: " ")
+                .joined(separator: ", ")
                 + ")"
         case .unclosedList(let values):
-            return "(" + values
+            return ".unclosedList([" + values
                 .map { (t: MalType) -> String in t.debugDescription }
-                .joined(separator: " ")
-                + " unbalanced"
+                .joined(separator: ", ")
+                + "] <unbalanced>"
         case .boolean(let b): return "\(b)"
         }
     }
