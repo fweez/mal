@@ -3,6 +3,11 @@ import FunctionalUtilities
 typealias EvalListValues = (values: [MalType], environment: Environment)
 typealias EvalValue = (value: MalType, environment: Environment)
 
+enum EvalError: Error {
+    case unexpectedArgumentCount
+    case unexpectedType
+}
+
 fileprivate func run(_ f: (EvalValue) throws -> (EvalValue), on values: [MalType], in environment: Environment) throws -> EvalListValues {
     return try values
         .reduce(([], environment), { (accum: EvalListValues, value: MalType) throws -> EvalListValues in
@@ -20,7 +25,7 @@ fileprivate func evalASTValues(_ input: EvalListValues) throws -> EvalListValues
 }
 
 fileprivate func updateEnvironment(_ input: EvalListValues) throws -> EvalValue {
-    guard input.values.count == 2 else { fatalError() }
+    guard input.values.count == 2 else { throw EvalError.unexpectedArgumentCount }
     let key = input.values.first!
     let value = input.values.last!
     
@@ -50,14 +55,14 @@ fileprivate func generateEnvironment(_ input: EvalValue) throws -> Environment {
 }
 
 fileprivate func evaluateWithBindings(_ input: EvalListValues) throws -> EvalValue {
-    guard input.values.count == 2 else { fatalError() }
+    guard input.values.count == 2 else { throw EvalError.unexpectedArgumentCount }
     return try (value: input.values.last!, environment: (input.values.first!, input.environment) |> generateEnvironment)
         |> evaluate
         |> { ($0.value, input.environment) }
 }
 
 fileprivate func ifTest(_ input: EvalListValues) throws -> EvalValue {
-    guard input.values.count == 2 || input.values.count == 3 else { fatalError() }
+    guard input.values.count == 2 || input.values.count == 3 else { throw EvalError.unexpectedArgumentCount }
     let test = input.values[0]
     let trueBranch = input.values[1]
     let falseBranch: MalType? = (input.values.count == 3) ? input.values[2] : nil
@@ -82,7 +87,7 @@ func debugReturn(_ input: EvalValue) -> EvalValue {
 }
 
 fileprivate func fn(_ input: EvalListValues) throws -> EvalValue {
-    guard input.values.count == 2 else { fatalError() }
+    guard input.values.count == 2 else { throw EvalError.unexpectedArgumentCount }
     let body = { (parameters: MalType, values: MalType, environment: Environment) -> MalType in
         return try (input.values[1], set(in: environment, binds: parameters, exprs: values))
             |> evaluate
@@ -116,10 +121,10 @@ fileprivate func closure(_ input: EvalValue) throws -> EvalValue {
         }
 }
 
-func extractListValues(_ list: MalType) -> [MalType] {
+func extractListValues(_ list: MalType) throws -> [MalType] {
     switch list {
     case .list(let v): return v
-    default: fatalError()
+    default: throw EvalError.unexpectedType
     }
 }
 
@@ -128,7 +133,7 @@ func listify(_ input: EvalListValues) -> EvalValue {
 }
 
 func apply(_ input: EvalValue) throws -> EvalValue {
-    let unevaluatedValues = input.value |> extractListValues
+    let unevaluatedValues = try input.value |> extractListValues
     let first = unevaluatedValues.first!
     let remaining = Array(unevaluatedValues[1...])
     let toProcess = (remaining, input.environment)
@@ -154,7 +159,7 @@ func evaluate(_ input: EvalValue) throws -> EvalValue {
 
 func evalAST(_ input: EvalValue) throws -> EvalValue {
     switch input.value {
-    case .unclosedList: fatalError()
+    case .unclosedList: throw EvalError.unexpectedType
     case .symbol:
         return (get(in: input.environment, key: input.value) as MalType? ?? input.value, input.environment)
     case .list(let v):

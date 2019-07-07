@@ -2,8 +2,13 @@ import Foundation
 import FunctionalUtilities
 
 func READ(_ input: String) -> MalType {
-    return input
-        |> readString
+    do {
+        return try input
+            |> readString
+    } catch {
+        print("Error during read: \(error)")
+        return .nil
+    }
 }
 
 func EVAL(_ input: MalType) -> MalType {
@@ -11,7 +16,7 @@ func EVAL(_ input: MalType) -> MalType {
         return try (input, replEnvironment) |> evaluate
             >>> { $0.value }
     } catch {
-        print("Error: \(error)")
+        print("Error during eval: \(error)")
         return .nil
     }
 }

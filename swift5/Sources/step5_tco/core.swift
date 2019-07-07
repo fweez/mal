@@ -8,7 +8,7 @@ enum BuiltinError: Error {
 
 func runBuiltin(_ f: @escaping (Int, Int) -> Int) -> EvaluationFunction {
     return { _, values, _ in
-        let values = values |> extractListValues
+        let values = try values |> extractListValues
         guard values.count == 2 else { throw BuiltinError.incorrectArgumentCount }
         switch (values[0], values[1]) {
         case (.number(let l), .number(let r)): return .number(f(l, r))
@@ -19,7 +19,7 @@ func runBuiltin(_ f: @escaping (Int, Int) -> Int) -> EvaluationFunction {
 
 func runBuiltin(_ f: @escaping (Int, Int) -> Bool) -> EvaluationFunction {
     return { _, values, _ in
-        let values = values |> extractListValues
+        let values = try values |> extractListValues
         guard values.count == 2 else { throw BuiltinError.incorrectArgumentCount }
         switch (values[0], values[1]) {
         case (.number(let l), .number(let r)): return .boolean(f(l, r))
@@ -30,21 +30,21 @@ func runBuiltin(_ f: @escaping (Int, Int) -> Bool) -> EvaluationFunction {
 
 func runBuiltin(_ f: @escaping (MalType) -> MalType) -> EvaluationFunction {
     return { _, values, _ in
-        let values = values |> extractListValues
+        let values = try values |> extractListValues
         return f(values.first!)
     }
 }
 
 func runBuiltin(_ f: @escaping (MalType?) -> MalType) -> EvaluationFunction {
     return { _, values, _ in
-        let values = values |> extractListValues
+        let values = try values |> extractListValues
         return f(values.first)
     }
 }
 
 func runBuiltin(_ f: @escaping (MalType, MalType) -> MalType) -> EvaluationFunction {
     return { _, values, _ in
-        let values = values |> extractListValues
+        let values = try values |> extractListValues
         guard values.count == 2 else { throw BuiltinError.incorrectArgumentCount }
         return f(values[0], values[1])
     }
@@ -75,7 +75,7 @@ let ns: Environment = Environment(
             if let v = input { print("\(v)") }
             return MalType.nil
         } |> toOneParamFn,
-        .symbol("list"): { _, v, _ in v |> extractListValues >>> MalType.list }  |> toOneParamFn,
+        .symbol("list"): { _, v, _ in try v |> extractListValues >>> MalType.list }  |> toOneParamFn,
         .symbol("list?"): runBuiltin { (input: MalType) -> MalType in
             switch input {
             case .list: return MalType.boolean(true)

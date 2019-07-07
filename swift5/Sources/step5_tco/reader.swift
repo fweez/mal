@@ -1,12 +1,17 @@
 import Foundation
 import FunctionalUtilities
 
+enum ReaderError: Error {
+    case didNotTokenizeToSingleExpression
+    case atomNotReadIntoEnclosingStructure
+}
+
 typealias ASTStack = [MalType]
-func readString(_ input: String) -> MalType {
+func readString(_ input: String) throws -> MalType {
     let initialStack: ASTStack = []
-    let output = (input |> tokenize)
+    let output = try (input |> tokenize)
         .reduce(initialStack, readForm)
-    guard output.count == 1 else { fatalError() }
+    guard output.count == 1 else { throw ReaderError.didNotTokenizeToSingleExpression }
     return output.first!
 }
 
@@ -33,7 +38,7 @@ func tokenize(_ input: String) -> [Token] {
         .map { Token(from: $0) }
 }
 
-func readForm(_ stack: ASTStack, _ next: Token) -> ASTStack {
+func readForm(_ stack: ASTStack, _ next: Token) throws -> ASTStack {
     switch next {
     /// Read List
     case .lparen:
@@ -56,7 +61,7 @@ func readForm(_ stack: ASTStack, _ next: Token) -> ASTStack {
         guard let last = stack.popLast() else { return [nextMalType] }
         switch last {
         case .unclosedList(let v): return stack + [.unclosedList(v + [nextMalType])]
-        default: fatalError()
+        default: throw ReaderError.atomNotReadIntoEnclosingStructure
         }
     }
 }
