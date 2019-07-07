@@ -39,5 +39,9 @@ let package = Package(
             name: "step4_if_fn_do",
             dependencies: ["FunctionalUtilities"]
         ),
+        .target(
+            name: "step5_tco",
+            dependencies: ["FunctionalUtilities"]
+        ),
     ]
 )
