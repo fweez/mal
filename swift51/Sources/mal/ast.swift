@@ -26,7 +26,7 @@ enum AST {
     case symbol(String)
     case bool(Bool)
     indirect case list([AST])
-    indirect case function(([AST]) -> Result<AST, EvalError>)
+    indirect case function(ast: AST, params: [AST], environment: Environment, fn: (([AST]) -> Result<AST, EvalError>)?)
     
     init(_ token: Token) throws {
         switch token {

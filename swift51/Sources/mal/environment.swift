@@ -17,22 +17,21 @@ class Environment: ExpressibleByDictionaryLiteral {
         set { data[key] = newValue }
     }
 }
-
 var replEnv: Environment = [
-    "+": .function(add),
-    "-": .function(sub),
-    "*": .function(mul),
-    "/": .function(div),
-    "prn": .function(prn),
-    "list": .function(list),
-    "list?": .function(isList),
-    "empty?": .function(isEmpty),
-    "count": .function(count),
-    "=": .function(isEqual),
-    "<": .function(isLessThan),
-    "<=": .function(isLessThanEqual),
-    ">": .function(isGreaterThan),
-    ">=": .function(isGreaterThanEqual),
+    "+": .function(ast: .nil, params: [], environment: [:], fn: add),
+    "-": .function(ast: .nil, params: [], environment: [:], fn: sub),
+    "*": .function(ast: .nil, params: [], environment: [:], fn: mul),
+    "/": .function(ast: .nil, params: [], environment: [:], fn: div),
+    "prn": .function(ast: .nil, params: [], environment: [:], fn: prn),
+    "list": .function(ast: .nil, params: [], environment: [:], fn: list),
+    "list?": .function(ast: .nil, params: [], environment: [:], fn: isList),
+    "empty?": .function(ast: .nil, params: [], environment: [:], fn: isEmpty),
+    "count": .function(ast: .nil, params: [], environment: [:], fn: count),
+    "=": .function(ast: .nil, params: [], environment: [:], fn: isEqual),
+    "<": .function(ast: .nil, params: [], environment: [:], fn: isLessThan),
+    "<=": .function(ast: .nil, params: [], environment: [:], fn: isLessThanEqual),
+    ">": .function(ast: .nil, params: [], environment: [:], fn: isGreaterThan),
+    ">=": .function(ast: .nil, params: [], environment: [:], fn: isGreaterThanEqual),
 ]
 
 func map2IntegersToResult(_ list: [AST], _ f: (Int, Int) -> Int) -> Result<AST, EvalError> {
