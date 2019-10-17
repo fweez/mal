@@ -32,7 +32,7 @@ func readList(_ reader: inout Reader) -> Result<AST, ASTError> {
     _ = reader.next()
     var listContents: [AST] = []
     while true {
-        guard let next = reader.peek else { return .failure(ASTError.unexpectedEOL) }
+        guard let next = reader.peek else { return .failure(ASTError.unexpectedEOL(listContents)) }
         switch next {
         case .rparen:
             _ = reader.next()

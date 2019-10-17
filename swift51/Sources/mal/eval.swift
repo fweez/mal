@@ -9,6 +9,8 @@ enum EvalError: Error {
     case letError(String, AST, Environment)
     case fnError(String, AST, Environment)
     case bindingError(String, Environment)
+    case stringEvaluationError(String, AST)
+    case fileLoadingError(description: String, filename: String)
 
     var localizedDescription: String {
         switch self {
@@ -26,6 +28,10 @@ enum EvalError: Error {
             return "Error processing let*: \(description) (AST: \(ast)) (Environment: \(environment))"
         case let .fnError(description, ast, environment):
             return "Error processing fn*: \(description) (AST: \(ast)) (Environment: \(environment))"
+        case let .stringEvaluationError(description, input):
+            return "Error evaluating string: \(description) (Input string: \(input))"
+        case let .fileLoadingError(description: description, filename: filename):
+            return "Error opening file '\(filename)': \(description)"
         }
     }
 }
@@ -34,11 +40,15 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
     var ast = ast
     var environment = environment
     while true {
+        print("EVAL")
+        print("ast: \(ast)")
+        print("environment: \(environment.id)")
         switch ast {
         case .list(let list):
             guard list.isEmpty == false else { return .success(ast) }
             switch list.first! {
             case .def: return setInEnvironment(ast, environment)
+            case .fn: return runFn(ast, environment)
             case .let:
                 let result = createEnvironment(ast, environment)
                 switch result {
@@ -61,22 +71,25 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
                 case .success(let newAST):
                     ast = newAST
                 }
-            case .fn: return runFn(ast, environment)
             default:
                 switch evalAST(ast, environment).flatMap({ apply($0, environment) }) {
                 case .failure(let err): return .failure(err)
-                case .success(let (newAST, newEnvironment)):
+                case .success(let (newAST, newEnvironment)) where newEnvironment != nil:
                     ast = newAST
-                    environment = newEnvironment
+                    environment = newEnvironment!
+                case .success(let (newAST, _)): return .success(newAST)
                 }
             }
-            
         default: return evalAST(ast, environment)
         }
     }
 }
 
 func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    print("evalAST on \(ast)")
+    print("ast: \(ast)")
+    print("environment: \(environment.id)")
+
     switch ast {
     case .symbol(let symbol):
         guard let lookup = environment[symbol] else { return .failure(.unknownSymbol(symbol, environment)) }
@@ -100,25 +113,26 @@ func extractListContents(_ ast: AST, _ environment: Environment, checkedBy predi
     return .success(list)
 }
 
-func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment), EvalError> {
+func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?), EvalError> {
     return extractListContents(ast, environment) { list in
         guard list.isEmpty == false else { return .listEvaluationError("Expected list to have values in apply", ast, environment) }
-        guard case .function = list.first  else { return .listEvaluationError("First value in list was not a function", ast, environment) }
-        return nil
+        switch list.first {
+        case .function, .builtin: return nil
+        default: return .listEvaluationError("First value in list was not a function or builtin", ast, environment)
+        }
     }
     .flatMap { list in
         let args = Array(list.suffix(from: 1))
-        guard case let .function(ast: body, params: parameters, environment: environment, fn: applyFn) = list.first! else { preconditionFailure() }
-        if let applyFn = applyFn {
-            return applyFn(args)
-                .map { ($0, environment) }
-        } else {
+        switch list.first {
+        case let .function(ast: body, params: parameters, environment: environment, fn: _):
             let bindings = zip(parameters, args)
                 .reduce([]) { return $0 + [$1.0, $1.1] }
+            print("CREATING ENVIRONMENT FOR FUNCTION ARGUMENTS")
             return Environment.from(outer: environment, bindings: bindings)
                 .map { (body, $0) }
+        case .builtin(let applyFn): return applyFn(args).map { ($0, nil) }
+        default: preconditionFailure()
         }
-        
     }
 }
 
@@ -166,6 +180,7 @@ func createEnvironment(_ ast: AST, _ environment: Environment) -> Result<(AST, E
     }
     .flatMap { list in
         guard case .list(let bindings) = list[1] else { preconditionFailure() }
+        print("CREATING ENVIRONMENT FOR LET*")
         return Environment.from(outer: environment, bindings: bindings)
             .map { (list[2], $0) }
     }

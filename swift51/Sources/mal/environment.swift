@@ -1,8 +1,10 @@
 import Foundation
+import FunctionalUtilities
 
 class Environment: ExpressibleByDictionaryLiteral {
     var outer: Environment?
     var data: [String: AST] = [:]
+    var id = UUID()
     
     typealias Key = String
     typealias Value = AST
@@ -17,21 +19,45 @@ class Environment: ExpressibleByDictionaryLiteral {
         set { data[key] = newValue }
     }
 }
+
+extension Environment: Identifiable { }
+
+extension Environment: CustomStringConvertible {
+    var description: String {
+        [
+            id.uuidString,
+            data
+                .map({ "\($0): \($1)" })
+                .joined(separator: "\n"),
+            """
+            
+            outer:
+            ======
+            \(outer?.description ?? "nil")
+            """
+            ].joined(separator: "\n")
+    }
+}
+
 var replEnv: Environment = [
-    "+": .function(ast: .nil, params: [], environment: [:], fn: add),
-    "-": .function(ast: .nil, params: [], environment: [:], fn: sub),
-    "*": .function(ast: .nil, params: [], environment: [:], fn: mul),
-    "/": .function(ast: .nil, params: [], environment: [:], fn: div),
-    "prn": .function(ast: .nil, params: [], environment: [:], fn: prn),
-    "list": .function(ast: .nil, params: [], environment: [:], fn: list),
-    "list?": .function(ast: .nil, params: [], environment: [:], fn: isList),
-    "empty?": .function(ast: .nil, params: [], environment: [:], fn: isEmpty),
-    "count": .function(ast: .nil, params: [], environment: [:], fn: count),
-    "=": .function(ast: .nil, params: [], environment: [:], fn: isEqual),
-    "<": .function(ast: .nil, params: [], environment: [:], fn: isLessThan),
-    "<=": .function(ast: .nil, params: [], environment: [:], fn: isLessThanEqual),
-    ">": .function(ast: .nil, params: [], environment: [:], fn: isGreaterThan),
-    ">=": .function(ast: .nil, params: [], environment: [:], fn: isGreaterThanEqual),
+    "+": .builtin(add),
+    "-": .builtin(sub),
+    "*": .builtin(mul),
+    "/": .builtin(div),
+    "prn": .builtin(prn),
+    "list": .builtin(list),
+    "list?": .builtin(isList),
+    "empty?": .builtin(isEmpty),
+    "count": .builtin(count),
+    "=": .builtin(isEqual),
+    "<": .builtin(isLessThan),
+    "<=": .builtin(isLessThanEqual),
+    ">": .builtin(isGreaterThan),
+    ">=": .builtin(isGreaterThanEqual),
+    "read-string": .builtin(readString),
+    "slurp": .builtin(slurp),
+    "str": .builtin(concatenateStrings),
+    "eval": .builtin(replEVAL)
 ]
 
 func map2IntegersToResult(_ list: [AST], _ f: (Int, Int) -> Int) -> Result<AST, EvalError> {
@@ -109,3 +135,36 @@ func isGreaterThanEqual(_ list: [AST]) -> Result<AST, EvalError> {
     return map2IntegersToResult(list, >=)
 }
 
+func readString(_ list: [AST]) -> Result<AST, EvalError> {
+    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
+    guard case .string(let s) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
+    switch READ(s) {
+    case .failure(let err): return .failure(.stringEvaluationError(err.localizedDescription, list.first!))
+    case .success(let ast): return .success(ast)
+    }
+}
+
+func slurp(_ list: [AST]) -> Result<AST, EvalError> {
+    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
+    guard case .string(let filename) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
+    do {
+        return .success(.string(try String(contentsOfFile: filename, encoding: .utf8)))
+    } catch {
+        return .failure(.fileLoadingError(description: error.localizedDescription, filename: filename))
+    }
+}
+
+func concatenateStrings(_ list: [AST]) -> Result<AST, EvalError> {
+    return list.reduce(.success(.string(""))) { result, nextAST in
+        result.flatMap { resultAST in
+            guard case .string(let resultString) = resultAST, case .string(let nextString) = nextAST else { return .failure(.argumentMismatch("Expected string parameters", list)) }
+            return .success(.string(resultString + nextString))
+        }
+    }
+}
+
+func replEVAL(_ list: [AST]) -> Result<AST, EvalError> {
+    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
+    print("FIRING REPL'S EVAL")
+    return EVAL(list[0], replEnv)
+}
