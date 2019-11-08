@@ -37,3 +37,9 @@ public func >>> <A, B, C>(f: @escaping (A) -> B, g: @escaping (B) -> C) -> ((A) 
         g(f(a))
     }
 }
+
+public func zip<A, B, E>(_ resultA: Result<A, E>, _ resultB: Result<B, E>) -> Result<(A, B), E> {
+    resultA.flatMap { a in
+        resultB.map { b in (a, b) }
+    }
+}

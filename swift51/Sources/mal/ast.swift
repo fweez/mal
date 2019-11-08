@@ -35,6 +35,10 @@ enum AST {
     indirect case vector([AST])
     indirect case function(ast: AST, params: [AST], environment: Environment, fn: ASTFunction?)
     indirect case builtin(ASTFunction)
+    case quote
+    case quasiquote
+    case unquote
+    case spliceunquote
     
     init(_ token: Token) throws {
         switch token {
@@ -52,6 +56,10 @@ enum AST {
             case "do": self = .do
             case "if": self = .if
             case "fn*": self = .fn
+            case "quote": self = .quote
+            case "quasiquote": self = .quasiquote
+            case "unquote": self = .unquote
+            case "splice-unquote": self = .spliceunquote
             default: self = .symbol(s)
             }
         }
@@ -61,7 +69,7 @@ enum AST {
 extension AST: Equatable {
     static func == (lhs: AST, rhs: AST) -> Bool {
         switch (lhs, rhs) {
-        case (.empty, .empty), (.nil, .nil), (.def, .def), (.let, .let), (.do, .do), (.if, .if), (.fn, .fn), (.builtin, .builtin): return true
+        case (.empty, .empty), (.nil, .nil), (.def, .def), (.let, .let), (.do, .do), (.if, .if), (.fn, .fn), (.builtin, .builtin), (.quote, .quote), (.quasiquote, .quasiquote): return true
         case (.integer(let l), .integer(let r)): return l == r
         case (.symbol(let l), .symbol(let r)): return l == r
         case (.bool(let l), .bool(let r)): return l == r
@@ -71,7 +79,6 @@ extension AST: Equatable {
                 if !equal { return equal }
                 return l == r
             }
-        
         case (.function, .function): return true
         case (.string(let l), .string(let r)): return l == r
         default: return false
@@ -98,6 +105,10 @@ extension AST: CustomStringConvertible {
         case .fn: return "fn*"
         case .string(let s): return "\"\(s)\""
         case .atom(let uuid): return "(atom \(atomSpace[uuid] ?? .nil))"
+        case .quote: return "quote"
+        case .quasiquote: return "quasiquote"
+        case .unquote: return "unquote"
+        case .spliceunquote: return "splice-unquote"
         }
     }
 }

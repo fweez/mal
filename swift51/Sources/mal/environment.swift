@@ -62,7 +62,9 @@ var replEnv: Environment = [
     "atom?": .builtin(isAtom),
     "deref": .builtin(deref),
     "reset!": .builtin(reset),
-    "swap!": .builtin(swap)
+    "swap!": .builtin(swap),
+    "cons": .builtin(cons),
+    "concat": .builtin(concat),
 ]
 
 public func initializationScript() {
@@ -176,8 +178,8 @@ func slurp(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
 func concatenateStrings(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     list.reduce(.success(.string(""))) { result, nextAST in
         result.flatMap { resultAST in
-            guard case .string(let resultString) = resultAST, case .string(let nextString) = nextAST else { return .failure(.argumentMismatch("Expected string parameters", list)) }
-            return .success(.string(resultString + nextString))
+            guard case .string(let resultString) = resultAST else { preconditionFailure() }
+            return .success(.string(resultString + nextAST.description))
         }
     }
 }
@@ -230,5 +232,22 @@ func swap(_ list: [AST], _ environment: Environment) -> Result<AST, EvalError> {
         atomSpace[atomID] = evaluatedValue
         fallthrough
     case .failure: return evaluated
+    }
+}
+
+func cons(_ list: [AST], _ environment: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 2).flatMap {
+        guard case .list(let listArg) = list.last! else { return .failure(.argumentMismatch("Expected list as parameter 2", list)) }
+        return .success(.list([list.first!] + listArg))
+    }
+}
+
+func concat(_ list: [AST], _ environment: Environment) -> Result<AST, EvalError> {
+    list.reduce(.success(.list([]))) { accum, next -> Result<AST, EvalError> in
+        guard case .list(let nextContents) = next else { return .failure(.argumentMismatch("Expected list parameters", list)) }
+        return accum.map { accumAST in
+            guard case .list(let accumContents) = accumAST else { preconditionFailure() }
+            return .list(accumContents + nextContents)
+        }
     }
 }

@@ -12,6 +12,7 @@ enum EvalError: Error {
     case stringEvaluationError(String, AST)
     case fileLoadingError(description: String, filename: String)
     case atomError(String, UUID, [UUID: AST])
+    case quasiquoteError(String, AST)
     
     var localizedDescription: String {
         switch self {
@@ -19,15 +20,15 @@ enum EvalError: Error {
             return "\(description) (AST: \(ast))"
         case let .unknownSymbol(symbol, environment):
             return "'\(symbol)' not found (Environment: \(environment))"
-        case let .listEvaluationError(description, ast, environment):
+        case let .listEvaluationError(description, ast, _):
             return "\(description) (AST: \(ast))"
-        case let .defError(description, ast, environment):
+        case let .defError(description, ast, _):
             return "Error processing def!: \(description) (AST: \(ast))"
-        case let .bindingError(description, environment):
+        case let .bindingError(description, _):
             return "Error binding to environment: \(description)"
-        case let .letError(description, ast, environment):
+        case let .letError(description, ast, _):
             return "Error processing let*: \(description) (AST: \(ast))"
-        case let .fnError(description, ast, environment):
+        case let .fnError(description, ast, _):
             return "Error processing fn*: \(description) (AST: \(ast))"
         case let .stringEvaluationError(description, input):
             return "Error evaluating string: \(description) (Input string: \(input))"
@@ -35,6 +36,8 @@ enum EvalError: Error {
             return "Error opening file '\(filename)': \(description)"
         case let .atomError(description, atomID, searchSpace):
             return "Atom \(atomID.uuidString) error: \(description). (Atom space: \(searchSpace))"
+        case let .quasiquoteError(description, ast):
+            return "Error in quasiquote: \(description) (AST: \(ast))"
         }
     }
 }
@@ -52,6 +55,7 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
             switch list.first! {
             case .def: return setInEnvironment(ast, environment)
             case .fn: return runFn(ast, environment)
+            case .quote: return runQuote(ast, environment)
             case .let:
                 let result = createEnvironment(ast, environment)
                 switch result {
@@ -69,6 +73,13 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
                 }
             case .if:
                 let result = runIf(ast, environment)
+                switch result {
+                case .failure: return result
+                case .success(let newAST):
+                    ast = newAST
+                }
+            case .quasiquote:
+                let result = runQuasiquote(ast, environment)
                 switch result {
                 case .failure: return result
                 case .success(let newAST):
@@ -251,5 +262,65 @@ func runFn(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
             params: parameters,
             environment: environment,
             fn: nil)
+    }
+}
+
+func runQuote(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    extractListContents(ast, environment) { list in
+        guard list.count == 2 else { return .listEvaluationError("Expected list to have 2 values", ast, environment) }
+        guard case .quote = list.first! else { return .argumentMismatch("quote not first symbol!?", list) }
+        return nil
+    }
+    .map { $0.last! }
+}
+
+func runQuasiquote(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    extractListContents(ast, environment) { list in
+        guard list.count == 2 else { return .listEvaluationError("Expected list to have 2 values", ast, environment) }
+        guard case .quasiquote = list.first! else { return .argumentMismatch("quasiquote not first symbol!?", list) }
+        return nil
+    }
+    .flatMap { list -> Result<AST, EvalError> in
+        func isPair(_ ast: AST) -> [AST]? {
+            guard case .list(let contents) = ast, contents.count > 0 else { return nil }
+            return contents
+        }
+        
+        /// if is_pair of ast is false: return a new list containing: a symbol named "quote" and ast.
+        let param = list.last!
+        guard let qqdItems = isPair(param) else { return .success(.list([.quote, param])) }
+        
+        /// else if the first element of ast is a symbol named "unquote": return the second element of ast.
+        if case .unquote = qqdItems.first! {
+            guard qqdItems.count == 2 else { return .failure(.quasiquoteError("expected 1 parameter to unquote", ast)) }
+            return .success(qqdItems.last!)
+        }
+        
+        /// if is_pair of the first element of ast is true and the first element of first element of ast (ast[0][0]) is a symbol named "splice-unquote":
+        if let firstItemContents = isPair(qqdItems.first!),
+            case .spliceunquote = firstItemContents.first! {
+            guard firstItemContents.count == 2 else { return .failure(.quasiquoteError("expected 1 parameter to splice-unquote", ast)) }
+            /// return a new list containing: a symbol named "concat", the second element of first element of ast (ast[0][1]), and the result of calling quasiquote with the second through last element of ast.
+            return runQuasiquote(.list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))]), environment)
+                .map { quasiquotedTail in
+                    .list([
+                        .symbol("concat"),
+                        firstItemContents[1],
+                        quasiquotedTail
+                    ])
+                }
+        }
+        
+        /// otherwise: return a new list containing: a symbol named "cons", the result of calling quasiquote on first element of ast (ast[0]), and the result of calling quasiquote with the second through last element of ast.
+        return zip(
+            runQuasiquote(.list([.quasiquote, qqdItems.first!]), environment),
+            runQuasiquote(.list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))]), environment))
+            .map { qqdFirst, qqdTail in
+                .list([
+                    .symbol("cons"),
+                    qqdFirst,
+                    qqdTail
+                    ])
+            }
     }
 }
