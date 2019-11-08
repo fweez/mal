@@ -4,6 +4,73 @@ import class Foundation.Bundle
 import FunctionalUtilities
 @testable import mal
 
+final class unitTests: XCTestCase {
+    func testParenParser() {
+        XCTAssertEqual(tokenize("()"), Result.success([Token.lparen, .rparen]))
+        XCTAssertEqual(tokenize("(("), Result.success([Token.lparen, .lparen]))
+        XCTAssertEqual(tokenize(" ()"), Result.success([Token.lparen, .rparen]))
+        XCTAssertEqual(tokenize(" (     )"), Result.success([Token.lparen, .rparen]))
+    }
+    
+    func testNumberParser() {
+        XCTAssertEqual(tokenize("1"), Result.success([Token.number(1)]))
+        XCTAssertEqual(tokenize("-1"), Result.success([Token.number(-1)]))
+        XCTAssertEqual(tokenize("   -1"), Result.success([Token.number(-1)]))
+        XCTAssertEqual(tokenize("(1 2)"), Result.success([Token.lparen, .number(1), .number(2), .rparen]))
+        XCTAssertEqual(tokenize("(  1 2)"), Result.success([Token.lparen, .number(1), .number(2), .rparen]))
+        XCTAssertEqual(tokenize("(  1 -2)"), Result.success([Token.lparen, .number(1), .number(-2), .rparen]))
+        XCTAssertEqual(tokenize("(-  1 2)"), Result.success([Token.lparen, .symbol("-"), .number(1), .number(2), .rparen]))
+        XCTAssertEqual(tokenize("(-  -1 2)"), Result.success([Token.lparen, .symbol("-"), .number(-1), .number(2), .rparen]))
+    }
+    
+    func testSymbolParser() {
+        XCTAssertEqual(tokenize("(+ 1)"), Result.success([Token.lparen, .symbol("+"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(- 1)"), Result.success([Token.lparen, .symbol("-"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(- + 1)"), Result.success([Token.lparen, .symbol("-"), .symbol("+"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(test 1)"), Result.success([Token.lparen, .symbol("test"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(test1 1)"), Result.success([Token.lparen, .symbol("test1"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(t3st 1)"), Result.success([Token.lparen, .symbol("t3st"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("(3test 1)"), Result.success([Token.lparen, .number(3), .symbol("test"), .number(1), .rparen]))
+        XCTAssertEqual(tokenize("test!"), Result.success([Token.symbol("test!")]))
+        XCTAssertEqual(tokenize("test*"), Result.success([Token.symbol("test*")]))
+        XCTAssertEqual(tokenize("(test)"), Result.success([Token.lparen, .symbol("test"), .rparen]))
+    }
+    
+    func testStringParser() {
+        XCTAssertEqual(tokenize(#""foo""#), Result.success([Token.string("foo")]))
+        XCTAssertEqual(tokenize(#"("foo" "bar")"#), Result.success([Token.lparen, .string("foo"), .string("bar"), .rparen]))
+        XCTAssertEqual(tokenize(#""foo\"bar\"""#), Result.success([.string("foo\\\"bar\\\"")]))
+    }
+    
+    func testCommentParser() {
+        XCTAssertEqual(tokenize(";test"), Result.success([]))
+        XCTAssertEqual(tokenize(";;(1)"), Result.success([]))
+        XCTAssertEqual(
+            tokenize("""
+            ;test
+            (1)
+            """), Result.success([Token.lparen, .number(1), .rparen]))
+        XCTAssertEqual(
+            tokenize("""
+            (1)
+            ;test
+            (2)
+            """), Result.success([Token.lparen, .number(1), .rparen, .lparen, .number(2), .rparen]))
+        XCTAssertEqual(
+            tokenize("""
+            (1)
+            ;test
+            (2)
+            ;test
+            """), Result.success([Token.lparen, .number(1), .rparen, .lparen, .number(2), .rparen]))
+        XCTAssertEqual(
+            tokenize("""
+            (1) ;test
+            (2)
+            """), Result.success([Token.lparen, .number(1), .rparen, .lparen, .number(2), .rparen]))
+    }
+}
+
 final class malTests: XCTestCase {
     enum TestInputLine {
         case testDescription(String)
@@ -65,6 +132,9 @@ final class malTests: XCTestCase {
         var deferrable = false
         var description = ""
         var output = ""
+        
+        initializationScript()
+        
         makeScript(tests)
             .forEach { inputLine in
                 switch inputLine {
@@ -973,12 +1043,12 @@ final class malTests: XCTestCase {
         (eval (read-string "(+ 2 3)"))
         ;=>5
 
-        (slurp "../tests/test.txt")
-        ;=>"A line of text\n"
+        (slurp "/Users/ryan/projects/mal/tests/test.txt")
+        ;=>"A line of text"
 
         ;; Testing load-file
 
-        (load-file "../tests/inc.mal")
+        (load-file "/Users/ryan/projects/mal/tests/inc.mal")
         (inc1 7)
         ;=>8
         (inc2 7)
@@ -1041,7 +1111,7 @@ final class malTests: XCTestCase {
         ;; -------- Deferrable Functionality --------
 
         ;; Testing reading of large files
-        (load-file "../tests/computations.mal")
+        (load-file "/Users/ryan/projects/mal/tests/computations.mal")
         ;=>nil
         (sumdown 2)
         ;=>3
@@ -1053,7 +1123,7 @@ final class malTests: XCTestCase {
         ;; -------- Optional Functionality --------
 
         ;; Testing comments in a file
-        (load-file "../tests/incB.mal")
+        (load-file "/Users/ryan/projects/mal/tests/incB.mal")
         ;/"incB.mal finished"
         ;=>"incB.mal return string"
         (inc4 7)
@@ -1062,7 +1132,7 @@ final class malTests: XCTestCase {
         ;=>12
 
         ;; Testing map literal across multiple lines in a file
-        (load-file "../tests/incC.mal")
+        (load-file "/Users/ryan/projects/mal/tests/incC.mal")
         mymap
         ;=>{"a" 1}
 

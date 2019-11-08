@@ -57,105 +57,124 @@ var replEnv: Environment = [
     "read-string": .builtin(readString),
     "slurp": .builtin(slurp),
     "str": .builtin(concatenateStrings),
-    "eval": .builtin(replEVAL)
+    "eval": .builtin(replEVAL),
+    "atom": .builtin(atom),
+    "atom?": .builtin(isAtom),
+    "deref": .builtin(deref),
+    "reset!": .builtin(reset),
+    "swap!": .builtin(swap)
 ]
 
-func map2IntegersToResult(_ list: [AST], _ f: (Int, Int) -> Int) -> Result<AST, EvalError> {
-    guard list.count == 2 else {
-        return .failure(.argumentMismatch("Expected 2 parameters", list)) }
-    guard case let .integer(e1) = list.first!, case let .integer(e2) = list.last! else { return .failure(.argumentMismatch("Expected integers", list)) }
-    return .success(.integer(f(e1, e2)))
+public func initializationScript() {
+    [
+        #"(def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) " nil)")))))"#
+    ]
+        .forEach(rep >>> { print($0) })
 }
 
-func add(_ list: [AST]) -> Result<AST, EvalError> {
+func checkLengthOf(_ list: [AST], is count: Int) -> Result<Void, EvalError> {
+    guard list.count == count else { return .failure(.argumentMismatch("Expected \(count) parameters", list)) }
+    return .success(())
+}
+
+func map2IntegersToResult(_ list: [AST], _ f: (Int, Int) -> Int) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 2).flatMap {
+        guard case let .integer(e1) = list.first!, case let .integer(e2) = list.last! else { return .failure(.argumentMismatch("Expected integers", list)) }
+        return .success(.integer(f(e1, e2)))
+    }
+}
+
+func add(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     map2IntegersToResult(list, +)
 }
 
-func sub(_ list: [AST]) -> Result<AST, EvalError> {
+func sub(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     map2IntegersToResult(list, -)
 }
 
-func mul(_ list: [AST]) -> Result<AST, EvalError> {
+func mul(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     map2IntegersToResult(list, *)
 }
 
-func div(_ list: [AST]) -> Result<AST, EvalError> {
+func div(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     map2IntegersToResult(list, /)
 }
 
-func prn(_ list: [AST]) -> Result<AST, EvalError> {
+func prn(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     if let p = list.first { print(p) }
     return .success(.nil)
 }
 
-func list(_ list: [AST]) -> Result<AST, EvalError> {
+func list(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     return .success(.list(list))
 }
 
-func isList(_ list: [AST]) -> Result<AST, EvalError> {
+func isList(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     if case .list(_) = list.first { return .success(.bool(true)) }
     else { return .success(.bool(false)) }
 }
 
-func isEmpty(_ list: [AST]) -> Result<AST, EvalError> {
+func isEmpty(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     if case .list(let l) = list.first, l.count == 0 { return .success(.bool(true)) }
     else { return .success(.bool(false)) }}
 
-func count(_ list: [AST]) -> Result<AST, EvalError> {
+func count(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     guard list.isEmpty == false else { return .failure(.argumentMismatch("expected a parameter", list)) }
     if case .list(let l) = list.first { return .success(.integer(l.count)) }
     else { return .success(.integer(0)) }
 }
 
-func isEqual(_ list: [AST]) -> Result<AST, EvalError> {
-    if list.count != 2 { return .failure(.argumentMismatch("expected 2 arguments", list)) }
-    return .success(.bool(list[0] == list[1]))
+func isEqual(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 2).map { .bool(list[0] == list[1]) }
 }
 
 func map2IntegersToResult(_ list: [AST], _ f: (Int, Int) -> Bool) -> Result<AST, EvalError> {
-    guard list.count == 2 else {
-        return .failure(.argumentMismatch("Expected 2 parameters", list)) }
-    guard case let .integer(e1) = list.first!, case let .integer(e2) = list.last! else { return .failure(.argumentMismatch("Expected integers", list)) }
-    return .success(.bool(f(e1, e2)))
+    checkLengthOf(list, is: 2).flatMap {
+        guard case let .integer(e1) = list.first!, case let .integer(e2) = list.last! else { return .failure(.argumentMismatch("Expected integers", list)) }
+        return .success(.bool(f(e1, e2)))
+    }
 }
 
-func isLessThan(_ list: [AST]) -> Result<AST, EvalError> {
+func isLessThan(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     return map2IntegersToResult(list, <)
 }
 
-func isLessThanEqual(_ list: [AST]) -> Result<AST, EvalError> {
+func isLessThanEqual(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     return map2IntegersToResult(list, <=)
 }
 
-func isGreaterThan(_ list: [AST]) -> Result<AST, EvalError> {
+func isGreaterThan(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     return map2IntegersToResult(list, >)
 }
 
-func isGreaterThanEqual(_ list: [AST]) -> Result<AST, EvalError> {
+func isGreaterThanEqual(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
     return map2IntegersToResult(list, >=)
 }
 
-func readString(_ list: [AST]) -> Result<AST, EvalError> {
-    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
-    guard case .string(let s) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
-    switch READ(s) {
-    case .failure(let err): return .failure(.stringEvaluationError(err.localizedDescription, list.first!))
-    case .success(let ast): return .success(ast)
+func readString(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).flatMap {
+        guard case .string(let s) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
+        switch READ(s) {
+        case .failure(let err): return .failure(.stringEvaluationError(err.localizedDescription, list.first!))
+        case .success(let ast): return .success(ast)
+        }
     }
 }
 
-func slurp(_ list: [AST]) -> Result<AST, EvalError> {
-    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
-    guard case .string(let filename) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
-    do {
-        return .success(.string(try String(contentsOfFile: filename, encoding: .utf8)))
-    } catch {
-        return .failure(.fileLoadingError(description: error.localizedDescription, filename: filename))
+func slurp(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).flatMap {
+        guard case .string(let filename) = list.first! else { return .failure(.argumentMismatch("Expected string parameter", list)) }
+        do {
+            let s = try String(contentsOfFile: filename, encoding: .utf8)
+            return .success(.string(s))
+        } catch {
+            return .failure(.fileLoadingError(description: error.localizedDescription, filename: filename))
+        }
     }
 }
 
-func concatenateStrings(_ list: [AST]) -> Result<AST, EvalError> {
-    return list.reduce(.success(.string(""))) { result, nextAST in
+func concatenateStrings(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    list.reduce(.success(.string(""))) { result, nextAST in
         result.flatMap { resultAST in
             guard case .string(let resultString) = resultAST, case .string(let nextString) = nextAST else { return .failure(.argumentMismatch("Expected string parameters", list)) }
             return .success(.string(resultString + nextString))
@@ -163,8 +182,53 @@ func concatenateStrings(_ list: [AST]) -> Result<AST, EvalError> {
     }
 }
 
-func replEVAL(_ list: [AST]) -> Result<AST, EvalError> {
-    guard list.count == 1 else { return .failure(.argumentMismatch("Expected 1 parameter", list)) }
-    print("FIRING REPL'S EVAL")
-    return EVAL(list[0], replEnv)
+var atomSpace: [UUID: AST] = [:]
+
+func replEVAL(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).flatMap { EVAL(list[0], replEnv) }
+}
+
+func atom(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).map {
+        let atomID = UUID()
+        atomSpace[atomID] = list.first!
+        return .atom(atomID)
+    }
+}
+
+func isAtom(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).map {
+        guard case .atom = list.first else { return .bool(false) }
+        return .bool(true)
+    }
+}
+
+func deref(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 1).flatMap {
+        guard case .atom(let atomID) = list.first! else { return .failure(.argumentMismatch("Expected atom", list)) }
+        guard let value = atomSpace[atomID] else { return .failure(.atomError("Unknown atom!?", atomID, atomSpace)) }
+        return .success(value)
+    }
+}
+
+func reset(_ list: [AST], _: Environment) -> Result<AST, EvalError> {
+    checkLengthOf(list, is: 2).flatMap {
+        guard case .atom(let atomID) = list.first! else { return .failure(.argumentMismatch("Expected atom", list)) }
+        atomSpace[atomID] = list.last!
+        return .success(list.last!)
+    }
+}
+
+func swap(_ list: [AST], _ environment: Environment) -> Result<AST, EvalError> {
+    guard list.count >= 2 else { return .failure(.argumentMismatch("Expected 2 or more parameters", list)) }
+    guard case .atom(let atomID) = list.first!, let atomValue = atomSpace[atomID] else { return .failure(.argumentMismatch("Expected atom as first parameter", list)) }
+    var newValueCalculation = Array(list.suffix(from: 1))
+    newValueCalculation.insert(atomValue, at: 1)
+    let evaluated = EVAL(.list(newValueCalculation), environment)
+    switch evaluated {
+    case .success(let evaluatedValue):
+        atomSpace[atomID] = evaluatedValue
+        fallthrough
+    case .failure: return evaluated
+    }
 }

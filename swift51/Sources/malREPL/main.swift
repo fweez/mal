@@ -9,6 +9,8 @@ import Foundation
 import FunctionalUtilities
 import mal
 
+initializationScript()
+
 while true {
     print("user> ", separator: "", terminator: "")
     guard let input = readLine(strippingNewline: true) else { break }

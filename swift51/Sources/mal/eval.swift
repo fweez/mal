@@ -11,7 +11,8 @@ enum EvalError: Error {
     case bindingError(String, Environment)
     case stringEvaluationError(String, AST)
     case fileLoadingError(description: String, filename: String)
-
+    case atomError(String, UUID, [UUID: AST])
+    
     var localizedDescription: String {
         switch self {
         case let .argumentMismatch(description, ast):
@@ -19,19 +20,21 @@ enum EvalError: Error {
         case let .unknownSymbol(symbol, environment):
             return "'\(symbol)' not found (Environment: \(environment))"
         case let .listEvaluationError(description, ast, environment):
-            return "\(description) (AST: \(ast)) (Environment: \(environment))"
+            return "\(description) (AST: \(ast))"
         case let .defError(description, ast, environment):
-            return "Error processing def!: \(description) (AST: \(ast)) (Environment: \(environment))"
+            return "Error processing def!: \(description) (AST: \(ast))"
         case let .bindingError(description, environment):
-            return "Error binding to environment: \(description) (Environment: \(environment))"
+            return "Error binding to environment: \(description)"
         case let .letError(description, ast, environment):
-            return "Error processing let*: \(description) (AST: \(ast)) (Environment: \(environment))"
+            return "Error processing let*: \(description) (AST: \(ast))"
         case let .fnError(description, ast, environment):
-            return "Error processing fn*: \(description) (AST: \(ast)) (Environment: \(environment))"
+            return "Error processing fn*: \(description) (AST: \(ast))"
         case let .stringEvaluationError(description, input):
             return "Error evaluating string: \(description) (Input string: \(input))"
         case let .fileLoadingError(description: description, filename: filename):
             return "Error opening file '\(filename)': \(description)"
+        case let .atomError(description, atomID, searchSpace):
+            return "Atom \(atomID.uuidString) error: \(description). (Atom space: \(searchSpace))"
         }
     }
 }
@@ -40,9 +43,9 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
     var ast = ast
     var environment = environment
     while true {
-        print("EVAL")
-        print("ast: \(ast)")
-        print("environment: \(environment.id)")
+//        print("EVAL")
+//        print("ast: \(ast)")
+//        print("environment: \(environment.id)")
         switch ast {
         case .list(let list):
             guard list.isEmpty == false else { return .success(ast) }
@@ -86,16 +89,16 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
 }
 
 func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
-    print("evalAST on \(ast)")
-    print("ast: \(ast)")
-    print("environment: \(environment.id)")
+//    print("evalAST on \(ast)")
+//    print("ast: \(ast)")
+//    print("environment: \(environment.id)")
 
     switch ast {
     case .symbol(let symbol):
         guard let lookup = environment[symbol] else { return .failure(.unknownSymbol(symbol, environment)) }
         return .success(lookup)
-    case .list(let list):
-        return list
+    case .list(let items):
+        return items
             .reduce(.success(.list([]))) { result, elementAST -> Result<AST, EvalError> in
                 result.flatMap { resultAST in
                     guard case .list(let resultList) = resultAST else { preconditionFailure("Accumulator should have had a list AST in it!") }
@@ -103,7 +106,15 @@ func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
                         .map { .list(resultList + [$0]) }
                 }
             }
-    default: return .success(ast)
+    case .vector(let items):
+        return items
+            .reduce(.success(.vector([]))) { result, elementAST -> Result<AST, EvalError> in
+                result.flatMap { resultAST in
+                    guard case .vector(let resultList) = resultAST else { preconditionFailure("Accumulator should have had a vector AST in it!") }
+                    return EVAL(elementAST, environment)
+                        .map { .vector(resultList + [$0]) }
+                }
+        }    default: return .success(ast)
     }
 }
 
@@ -127,10 +138,10 @@ func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?)
         case let .function(ast: body, params: parameters, environment: environment, fn: _):
             let bindings = zip(parameters, args)
                 .reduce([]) { return $0 + [$1.0, $1.1] }
-            print("CREATING ENVIRONMENT FOR FUNCTION ARGUMENTS")
+//            print("CREATING ENVIRONMENT FOR FUNCTION ARGUMENTS")
             return Environment.from(outer: environment, bindings: bindings)
                 .map { (body, $0) }
-        case .builtin(let applyFn): return applyFn(args).map { ($0, nil) }
+        case .builtin(let applyFn): return applyFn(args, environment).map { ($0, nil) }
         default: preconditionFailure()
         }
     }
@@ -180,7 +191,7 @@ func createEnvironment(_ ast: AST, _ environment: Environment) -> Result<(AST, E
     }
     .flatMap { list in
         guard case .list(let bindings) = list[1] else { preconditionFailure() }
-        print("CREATING ENVIRONMENT FOR LET*")
+//        print("CREATING ENVIRONMENT FOR LET*")
         return Environment.from(outer: environment, bindings: bindings)
             .map { (list[2], $0) }
     }
