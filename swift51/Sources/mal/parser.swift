@@ -1,7 +1,16 @@
 import Foundation
 
-struct Parser<A, Seq> where Seq: Sequence {
-    let run: (inout Seq) -> A?
+protocol ParserProtocol {
+    associatedtype Output
+    associatedtype Seq: Collection
+    
+    var run: (inout Seq.SubSequence) -> Output? { get }
+}
+struct Parser<A, B>: ParserProtocol where B: Collection {
+    typealias Output = A
+    typealias Seq = B
+    
+    let run: (inout B.SubSequence) -> A?
 }
 
 extension Parser {
@@ -69,6 +78,16 @@ func zeroOrMore<A, Seq>(_ p: Parser<A, Seq>, separatedBy s: Parser<Void, Seq>) -
     }
 }
 
+func zeroOrMore<A, Seq>(_ p: Parser<A, Seq>) -> Parser<[A], Seq> {
+    return Parser<[A], Seq> { input in
+        var matches: [A] = []
+        while let match = p.run(&input) {
+            matches.append(match)
+        }
+        return matches
+    }
+}
+
 func oneOf<A, Seq>(_ parsers: [Parser<A, Seq>]) -> Parser<A, Seq> {
     return Parser<A, Seq> { str -> A? in
         for p in parsers {
@@ -78,11 +97,55 @@ func oneOf<A, Seq>(_ parsers: [Parser<A, Seq>]) -> Parser<A, Seq> {
     }
 }
 
-//func optionalPrefix(while p: @escaping (Character) -> Bool) -> Parser<Substring, Substring> {
-//func optionalPrefix<Seq>(while p: @escaping (Seq.Element) -> Bool) -> Parser<Seq.SubSequence, Seq.SubSequence> where Seq: Collection {
-//    Parser<Seq, Seq> { input in
-//        let prefix = input.prefix(while: p)
-//        input.removeFirst(prefix.count)
-//        return prefix
-//    }
-//}
+func optionalPrefix<A>(while p: @escaping (A.Element) -> Bool) -> Parser<A.SubSequence, A> where A: Collection {
+    Parser<A.SubSequence, A> { input in
+        let prefix = input.prefix(while: p)
+        input.removeFirst(prefix.count)
+        return prefix
+    }
+}
+
+func hasPrefix<A>(while p: @escaping (A.Element) -> Bool) -> Parser<A.SubSequence, A> where A: Collection {
+    optionalPrefix(while: p)
+        .flatMap { str in
+            guard str.count > 0 else { return .never }
+            return always(str)
+    }
+}
+
+extension Collection where Element: Equatable {
+    func hasPrefix<A>(_ seq: A) -> Bool where A: Collection, A.Element == Self.Element {
+        guard self.count >= seq.count else { return false }
+        for (offset, elt) in seq.enumerated() {
+            let idx = self.index(self.startIndex, offsetBy: offset)
+            guard elt == self[idx] else { return false }
+        }
+        return true
+    }
+}
+
+func literal<A>(_ literalSequence: A) -> Parser<Void, A> where A: Collection, A.Element: Equatable {
+    return Parser<Void, A> { input in
+        guard input.hasPrefix(literalSequence) else { return nil }
+        input.removeFirst(literalSequence.count)
+        return ()
+    }
+}
+
+func literal<A>(_ literal: A.Element) -> Parser<Void, A> where A: Collection, A.Element: Equatable {
+    return Parser<Void, A> { input in
+        guard input.first == literal else { return nil }
+        input.removeFirst()
+        return ()
+    }
+}
+
+func literal<A, B>(_ literalSequence: A, _ produces: B) -> Parser<B, A> where A: Collection, A.Element: Equatable {
+    literal(literalSequence).flatMap { _ in always(produces) }
+}
+
+func literal<A, B>(_ l: A.Element, _ produces: B) -> Parser<B, A> where A: Collection, A.Element: Equatable {
+    literal(l).flatMap { _ in always(produces) }
+}
+
+

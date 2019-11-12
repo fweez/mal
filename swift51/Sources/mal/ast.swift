@@ -40,33 +40,6 @@ enum AST {
     case unquote
     case spliceunquote
     case defmacro
-    
-    init(_ token: Token) throws {
-        switch token {
-        case .lparen, .rparen, .lsquare, .rsquare, .tick, .backtick, .twiddle, .twiddleAt: throw ASTError.unexpectedToken
-        case .none: throw ASTError.tokenizerError("Attempted to build AST with none")
-        case let .number(s): self = .integer(Int(s))
-        case .string(let s): self = .string(s)
-        case let .symbol(s):
-            switch s {
-            case "nil": self = .nil
-            case "true": self = .bool(true)
-            case "false": self = .bool(false)
-            case "def!": self = .def
-            case "let*": self = .let
-            case "do": self = .do
-            case "if": self = .if
-            case "fn*": self = .fn
-            case "quote": self = .quote
-            case "quasiquote": self = .quasiquote
-            case "unquote": self = .unquote
-            case "splice-unquote": self = .spliceunquote
-            case "defmacro!": self = .defmacro
-            default: self = .symbol(s)
-            }
-        
-        }
-    }
 }
 
 extension AST: Equatable {

@@ -1,73 +1,90 @@
 import Foundation
 import FunctionalUtilities
 
+var parsers: [Parser<AST, [Token]>] = []
+let anyAST = Parser<AST, [Token]> { input -> AST? in
+    for p in parsers {
+        if let match = p.run(&input) {
+            return match
+        }
+    }
+    return nil
+}
+
 func READ(_ input: String) -> Result<AST, ASTError> {
-    tokenize(input)
-        .map(Reader.init)
-        .flatMap { readForm($0) }
-}
-
-//let list: Parser<AST, [Token]> = zip(
-//    
-//)
-
-struct Reader {
-    var tokens: [Token]
-    @discardableResult mutating func next() -> Token { tokens.removeFirst() }
-    var peek: Token? { tokens.first }
-}
-
-func readForm(_ reader: Reader) -> Result<AST, ASTError> {
-    var reader = reader
-    return readForm(&reader)
-}
-
-func wrapNextInList(_ reader: inout Reader, calling: AST) -> Result<AST, ASTError> {
-    reader.next()
-    return readForm(&reader).map { ast -> AST in
-        .list([calling, ast])
+    if parsers.count == 0 { constructParsers() }
+    switch tokenize(input) {
+    case .failure(let err): return .failure(err)
+    case .success(let tokens):
+        var tokens = tokens[...]
+        if let match = anyAST.run(&tokens) { return .success(match) }
+        else { return .failure(.tokenizerError("Didn't match at \(tokens)")) }
     }
 }
 
-func readForm(_ reader: inout Reader) -> Result<AST, ASTError> {
-    guard let first = reader.peek else { return .success(.empty) }
-    switch first {
-    case .lparen: return readList(&reader)
-    case .tick: return wrapNextInList(&reader, calling: .quote)
-    case .backtick: return wrapNextInList(&reader, calling: .quasiquote)
-    case .twiddle: return wrapNextInList(&reader, calling: .unquote)
-    case .twiddleAt: return wrapNextInList(&reader, calling: .spliceunquote)
-    default: return readAtom(&reader)
+func wrapInListWithCall(_ calling: AST) -> (Void, AST) -> AST {
+    return { _, ast in
+        AST.list([calling, ast])
     }
 }
 
-func readList(_ reader: inout Reader) -> Result<AST, ASTError> {
-    reader.next()
-    var listContents: [AST] = []
-    while true {
-        guard let next = reader.peek else { return .failure(ASTError.unexpectedEOL(listContents)) }
-        switch next {
-        case .rparen:
-            reader.next()
-            return .success(.list(listContents))
-        default:
-            let nextAST = readForm(&reader)
-            switch nextAST {
-            case .success(let ast): listContents.append(ast)
-            case .failure(let error): return .failure(error)
-            }
-        }
+let symbol = Parser<AST, [Token]> { input in
+    guard case .symbol = input.first, case .symbol(let s) = input.removeFirst() else { return nil }
+    switch s {
+    case "nil": return .nil
+    case "true": return .bool(true)
+    case "false": return .bool(false)
+    case "def!": return .def
+    case "let*": return .let
+    case "do": return .do
+    case "if": return .if
+    case "fn*": return .fn
+    case "quote": return .quote
+    case "quasiquote": return .quasiquote
+    case "unquote": return .unquote
+    case "splice-unquote": return .spliceunquote
+    case "defmacro!": return .defmacro
+    default: return .symbol(s)
     }
 }
+    
+let number = Parser<AST, [Token]> { input in
+    guard case .number = input.first, case .number(let i) = input.removeFirst() else { return nil }
+    return .integer(i)
+}
 
+let string = Parser<AST, [Token]> { input in
+    guard case .string = input.first, case .string(let s) = input.removeFirst() else { return nil }
+    return .string(s)
+}
 
-func readAtom(_ reader: inout Reader) -> Result<AST, ASTError> {
-    do {
-        return .success(try AST(reader.next()))
-    } catch {
-        if let error = error as? ASTError {
-            return .failure(error)
-        }
-        fatalError(error.localizedDescription)
-    }
+func constructParsers() {
+    parsers.append(contentsOf: [
+        zip(
+            literal(.lparen),
+            zeroOrMore(anyAST),
+            literal(.rparen))
+            .map { _, asts, _ in
+                AST.list(asts)
+            },
+        zip(
+            literal(.tick),
+            anyAST)
+            .map(wrapInListWithCall(.quote)),
+        zip(
+            literal(.backtick),
+            anyAST)
+            .map(wrapInListWithCall(.quasiquote)),
+        zip(
+            literal(.twiddle),
+            anyAST)
+            .map(wrapInListWithCall(.unquote)),
+        zip(
+            literal(.twiddleAt),
+            anyAST)
+            .map(wrapInListWithCall(.spliceunquote)),
+        number,
+        string,
+        symbol
+    ])
 }
