@@ -2,12 +2,12 @@ import Foundation
 
 enum ASTError: Error {
     case tokenizerError(String)
-    case unexpectedParen
+    case unexpectedToken
     case unexpectedEOL([AST])
 
     var localizedDescription: String {
         switch self {
-        case .unexpectedParen: return "Unexpected paren"
+        case .unexpectedToken: return "Unexpected token"
         case .unexpectedEOL(let list): return "Unexpected end-of-line, list was (\(list))"
         case .tokenizerError(let desc): return "Tokenizer error: \(desc)"
         }
@@ -33,16 +33,17 @@ enum AST {
     case atom(UUID)
     indirect case list([AST])
     indirect case vector([AST])
-    indirect case function(ast: AST, params: [AST], environment: Environment, fn: ASTFunction?)
+    indirect case function(ast: AST, params: [AST], environment: Environment, fn: ASTFunction?, isMacro: Bool)
     indirect case builtin(ASTFunction)
     case quote
     case quasiquote
     case unquote
     case spliceunquote
+    case defmacro
     
     init(_ token: Token) throws {
         switch token {
-        case .lparen, .rparen, .lsquare, .rsquare: throw ASTError.unexpectedParen
+        case .lparen, .rparen, .lsquare, .rsquare, .tick, .backtick, .twiddle, .twiddleAt: throw ASTError.unexpectedToken
         case .none: throw ASTError.tokenizerError("Attempted to build AST with none")
         case let .number(s): self = .integer(Int(s))
         case .string(let s): self = .string(s)
@@ -60,8 +61,10 @@ enum AST {
             case "quasiquote": self = .quasiquote
             case "unquote": self = .unquote
             case "splice-unquote": self = .spliceunquote
+            case "defmacro!": self = .defmacro
             default: self = .symbol(s)
             }
+        
         }
     }
 }
@@ -69,7 +72,7 @@ enum AST {
 extension AST: Equatable {
     static func == (lhs: AST, rhs: AST) -> Bool {
         switch (lhs, rhs) {
-        case (.empty, .empty), (.nil, .nil), (.def, .def), (.let, .let), (.do, .do), (.if, .if), (.fn, .fn), (.builtin, .builtin), (.quote, .quote), (.quasiquote, .quasiquote): return true
+        case (.empty, .empty), (.nil, .nil), (.def, .def), (.let, .let), (.do, .do), (.if, .if), (.fn, .fn), (.builtin, .builtin), (.quote, .quote), (.quasiquote, .quasiquote), (.defmacro, .defmacro): return true
         case (.integer(let l), .integer(let r)): return l == r
         case (.symbol(let l), .symbol(let r)): return l == r
         case (.bool(let l), .bool(let r)): return l == r
@@ -94,7 +97,11 @@ extension AST: CustomStringConvertible {
         case .symbol(let s): return s
         case .list(let l): return "(" + l.map { $0.description }.joined(separator: " ") + ")"
         case .vector(let l): return "[" + l.map { $0.description }.joined(separator: " ") + "]"
-        case let .function(ast: body, params: params, environment: _, fn: _): return "f(\(params)) (\(body))"
+        case let .function(ast: body, params: params, environment: _, fn: _, isMacro: macro):
+            let s: String
+            if macro { s = "MACRO " }
+            else { s = "" }
+            return s + "f(\(params)) (\(body))"
         case .builtin: return "#<builtin>"
         case .bool(let b): return "\(b)"
         case .nil: return "nil"
@@ -109,6 +116,7 @@ extension AST: CustomStringConvertible {
         case .quasiquote: return "quasiquote"
         case .unquote: return "unquote"
         case .spliceunquote: return "splice-unquote"
+        case .defmacro: return "defmacro!"
         }
     }
 }

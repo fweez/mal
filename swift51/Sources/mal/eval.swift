@@ -42,68 +42,84 @@ enum EvalError: Error {
     }
 }
 
+extension AST {
+    func runForm(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+        switch self {
+        case .def: return runDef(ast, environment)
+        case .fn: return runFn(ast, environment)
+        case .quote: return runQuote(ast, environment)
+        case .defmacro: return runDefmacro(ast, environment)
+        case .do: return runDo(ast, environment)
+        case .if: return runIf(ast, environment)
+        case .quasiquote: return runQuasiquote(ast, environment)
+        default: return .failure(.unknownSymbol("Tried to runForm -> AST with \(self)", environment))
+        }
+    }
+    
+    func runForm(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?), EvalError> {
+        switch self {
+        case .let: return runLet(ast, environment)
+        default: return evalAST(ast, environment).flatMap({
+            print("Applying \($0)")
+            return apply($0, environment) })
+        }
+    }
+    
+    func isMacroCall(_ environment: Environment) -> Bool {
+        switch self {
+        case .list(let contents):
+            if contents.count > 0,
+                case .symbol(let k) = contents.first!,
+                let v = environment[k],
+                case .function(ast: _, params: _, environment: _, fn: _, isMacro: let m) = v {
+                return m
+            }
+            fallthrough
+        default: return false
+        }
+    }
+}
+
 func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    print("EVAL \(ast)")
     var ast = ast
     var environment = environment
     while true {
-//        print("EVAL")
-//        print("ast: \(ast)")
-//        print("environment: \(environment.id)")
-        switch ast {
-        case .list(let list):
+        let expansionResult = macroexpand(ast, environment)
+        switch expansionResult {
+        case .failure: return expansionResult
+        case .success(let expandedAST): ast = expandedAST
+        }
+        
+        if case .list(let list) = ast {
             guard list.isEmpty == false else { return .success(ast) }
-            switch list.first! {
-            case .def: return setInEnvironment(ast, environment)
-            case .fn: return runFn(ast, environment)
-            case .quote: return runQuote(ast, environment)
-            case .let:
-                let result = createEnvironment(ast, environment)
-                switch result {
-                case .failure(let err): return .failure(err)
-                case .success(let (newAST, newEnvironment)):
-                    ast = newAST
-                    environment = newEnvironment
-                }
-            case .do:
-                let result = runDo(ast, environment)
-                switch result {
-                case .failure: return result
-                case .success(let newAST):
-                    ast = newAST
-                }
-            case .if:
-                let result = runIf(ast, environment)
-                switch result {
-                case .failure: return result
-                case .success(let newAST):
-                    ast = newAST
-                }
-            case .quasiquote:
-                let result = runQuasiquote(ast, environment)
+            let symbol = list.first!
+            switch symbol {
+            case .def, .fn, .quote, .defmacro: return symbol.runForm(ast, environment)
+            case .do, .if, .quasiquote:
+                let result: Result<AST, EvalError> = symbol.runForm(ast, environment)
                 switch result {
                 case .failure: return result
                 case .success(let newAST):
                     ast = newAST
                 }
             default:
-                switch evalAST(ast, environment).flatMap({ apply($0, environment) }) {
+                let result: Result<(AST, Environment?), EvalError> = symbol.runForm(ast, environment)
+                switch result {
                 case .failure(let err): return .failure(err)
-                case .success(let (newAST, newEnvironment)) where newEnvironment != nil:
+                case .success(let (newAST, newEnvironment)):
                     ast = newAST
-                    environment = newEnvironment!
-                case .success(let (newAST, _)): return .success(newAST)
+                    environment = newEnvironment ?? environment
                 }
             }
-        default: return evalAST(ast, environment)
+        } else {
+            return evalAST(ast, environment)
         }
     }
 }
 
 func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
-//    print("evalAST on \(ast)")
-//    print("ast: \(ast)")
-//    print("environment: \(environment.id)")
-
+    print("evalAST \(ast)")
     switch ast {
     case .symbol(let symbol):
         guard let lookup = environment[symbol] else { return .failure(.unknownSymbol(symbol, environment)) }
@@ -136,6 +152,7 @@ func extractListContents(_ ast: AST, _ environment: Environment, checkedBy predi
 }
 
 func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?), EvalError> {
+    print("apply \(ast)")
     return extractListContents(ast, environment) { list in
         guard list.isEmpty == false else { return .listEvaluationError("Expected list to have values in apply", ast, environment) }
         switch list.first {
@@ -146,7 +163,7 @@ func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?)
     .flatMap { list in
         let args = Array(list.suffix(from: 1))
         switch list.first {
-        case let .function(ast: body, params: parameters, environment: environment, fn: _):
+        case let .function(ast: body, params: parameters, environment: environment, fn: _, isMacro: _):
             let bindings = zip(parameters, args)
                 .reduce([]) { return $0 + [$1.0, $1.1] }
 //            print("CREATING ENVIRONMENT FOR FUNCTION ARGUMENTS")
@@ -158,11 +175,11 @@ func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?)
     }
 }
 
-func setInEnvironment(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+func runDef(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
     extractListContents(ast, environment) { list in
         guard list.count == 3 else { return .listEvaluationError("Expected list to have 3 values in def!", ast, environment) }
         guard case .def = list.first else { return .defError("def! not first symbol?!", ast, environment) }
-        guard case .symbol(_) = list[1] else { return .defError("expected symbol as first parameter", ast, environment) }
+        guard case .symbol = list[1] else { return .defError("expected symbol as first parameter", ast, environment) }
         return nil
     }
     .flatMap { list in
@@ -171,6 +188,27 @@ func setInEnvironment(_ ast: AST, _ environment: Environment) -> Result<AST, Eva
             .map { value in
                 environment[k] = value
                 return value
+        }
+    }
+}
+
+func runDefmacro(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    extractListContents(ast, environment) { list in
+        guard list.count == 3 else { return .listEvaluationError("Expected list to have 3 values in def!", ast, environment) }
+        guard case .defmacro = list.first else { return .defError("defmacro! not first symbol?!", ast, environment) }
+        guard case .symbol = list[1] else { return .defError("expected symbol as first parameter", ast, environment) }
+        return nil
+    }
+    .flatMap { list in
+        guard case .symbol(let k) = list[1] else { preconditionFailure() }
+        return EVAL(list[2], environment)
+            .map { value in
+                if case let .function(ast: ast, params: params, environment: environment, fn: astFn, isMacro: _) = value {
+                    environment[k] = .function(ast: ast, params: params, environment: environment, fn: astFn, isMacro: true)
+                } else {
+                    environment[k] = value
+                }
+                return environment[k]!
         }
     }
 }
@@ -192,7 +230,7 @@ extension Environment {
     }
 }
 
-func createEnvironment(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment), EvalError> {
+func runLet(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?), EvalError> {
     extractListContents(ast, environment) { list in
         guard list.count == 3 else { return .listEvaluationError("Expected list to have 3 values in let*", ast, environment) }
         guard case .let = list.first else { return .defError("let* not first symbol?!", ast, environment) }
@@ -202,7 +240,6 @@ func createEnvironment(_ ast: AST, _ environment: Environment) -> Result<(AST, E
     }
     .flatMap { list in
         guard case .list(let bindings) = list[1] else { preconditionFailure() }
-//        print("CREATING ENVIRONMENT FOR LET*")
         return Environment.from(outer: environment, bindings: bindings)
             .map { (list[2], $0) }
     }
@@ -261,7 +298,9 @@ func runFn(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
             ast: body,
             params: parameters,
             environment: environment,
-            fn: nil)
+            fn: nil,
+            isMacro: false
+        )
     }
 }
 
@@ -323,4 +362,31 @@ func runQuasiquote(_ ast: AST, _ environment: Environment) -> Result<AST, EvalEr
                     ])
             }
     }
+}
+
+func macroexpand(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    var ast = ast
+    var env = environment
+    while ast.isMacroCall(environment) {
+        print("macroexpand \(ast)")
+        let expansionResult = extractListContents(ast, environment) { _ in nil } // can't fail if it passes .isMacroCall()
+            .map { list -> AST in
+                guard case .symbol(let k) = list.first!,
+                    let function = environment[k],
+                    case .function = function else {
+                    preconditionFailure()
+                }
+                return .list([function] + Array(list.suffix(from: 1)))
+            }
+            .flatMap { evalAST($0, env) }
+            .flatMap { apply($0, env) }
+        switch expansionResult {
+        case .success(let (expandedAST, expansionEnv)):
+            ast = expandedAST
+            if let e = expansionEnv { env = e }
+        case .failure(let err): return .failure(err)
+        }
+    }
+    print("macroexpand return \(ast)")
+    return .success(ast)
 }

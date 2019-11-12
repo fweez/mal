@@ -5,6 +5,10 @@ enum Token {
     case rparen
     case lsquare
     case rsquare
+    case tick
+    case backtick
+    case twiddle
+    case twiddleAt
     case number(Int)
     case symbol(String)
     case string(String)
@@ -18,6 +22,10 @@ extension Token: CustomStringConvertible {
         case .rparen: return ")"
         case .lsquare: return "["
         case .rsquare: return "]"
+        case .tick: return "'"
+        case .backtick: return "`"
+        case .twiddle: return "~"
+        case .twiddleAt: return "~@"
         case .number(let n): return "NUMBER(\(n))"
         case .symbol(let s): return "SYMBOL(\(s))"
         case .string(let s): return "STRING(\(s))"
@@ -28,157 +36,106 @@ extension Token: CustomStringConvertible {
 
 extension Token: Equatable { }
 
-struct Parser<A> {
-    let run: (inout Substring) -> A?
-}
-
-extension Parser {
-    func map<B>(_ f: @escaping (A) -> B) -> Parser<B> {
-        Parser<B> { str -> B? in
-            self.run(&str).map(f)
-        }
-    }
-    
-    func flatMap<B>(_ f: @escaping (A) -> Parser<B>) -> Parser<B> {
-        Parser<B> { input -> B? in
-            let original = input
-            let matchA = self.run(&input)
-            guard let matchB = matchA.map(f)?.run(&input) else {
-                input = original
-                return nil
-            }
-            return matchB
-        }
+func optionalPrefix(while p: @escaping (Character) -> Bool) -> Parser<Substring, Substring> {
+    Parser<Substring, Substring> { str in
+        let prefix = str.prefix(while: p)
+        str.removeFirst(prefix.count)
+        return prefix
     }
 }
 
-func zip<A, B>(_ a: Parser<A>, _ b: Parser<B>) -> Parser<(A, B)> {
-    Parser<(A, B)> { str -> (A, B)? in
-        let orig = str
-        guard let matchA = a.run(&str) else { return nil }
-        guard let matchB = b.run(&str) else {
-            str = orig
-            return nil
+func hasPrefix(while p: @escaping (Character) -> Bool) -> Parser<Substring, Substring> {
+    optionalPrefix(while: p)
+        .flatMap { str in
+            guard str.count > 0 else { return .never }
+            return always(str)
         }
-        return (matchA, matchB)
-    }
 }
 
-func zip<A, B, C>(_ a: Parser<A>, _ b: Parser<B>, _ c: Parser<C>) -> Parser<(A, B, C)> {
-    zip(a, zip(b, c)).map { a, bc in (a, bc.0, bc.1) }
-}
+let anyWhitespace: Parser<Void, Substring> = optionalPrefix(while: { $0.isWhitespace })
+    .flatMap { _ in always(()) }
 
-
-let whitespace = Parser<Void> { input in
-    let wsPrefix = input.prefix(while: { $0.isWhitespace })
-    input.removeFirst(wsPrefix.count)
-    return ()
-}
-
-func literal(_ literalString: String) -> Parser<Void> {
-    let actualLiteral = Parser<Void> { input in
+func literal(_ literalString: String) -> Parser<Void, Substring> {
+    let actualLiteral = Parser<Void, Substring> { input in
         guard input.hasPrefix(literalString) else { return nil }
         input.removeFirst(literalString.count)
         return ()
     }
-    return zip(whitespace, actualLiteral).map { _, _ in () }
+    return zip(anyWhitespace, actualLiteral)
+        .flatMap { _ in always(()) }
 }
 
-func literal(_ literalString: String, _ token: Token) -> Parser<Token> {
-    literal(literalString).map { _ in token }
+func literal(_ literalString: String, _ token: Token) -> Parser<Token, Substring> {
+    literal(literalString).flatMap { _ in always(token) }
 }
 
+let sign = optionalPrefix(while: { $0 == "-" })
+let numbers = optionalPrefix(while: { $0.isNumber })
 let numberParser = zip(
-    whitespace,
-    Parser<Int> { input in
-        let orig = input
-        let sgn = literal("-").run(&input).map { _ in -1 } ?? 1
-        let prefix = input.prefix(while: { $0.isNumber })
-        guard let match = Int(prefix) else {
-            input = orig
-            return nil
-        }
-        input.removeFirst(prefix.count)
-        return sgn * match
-    }
-).map { Token.number($0.1) }
+    anyWhitespace,
+    sign,
+    numbers)
+    .flatMap { _, sgn, n in Parser<Int, Substring> { _ in Int(String(sgn + n)) } }
+    .map { Token.number($0) }
+
+let symbolInitial = hasPrefix(while: { $0.isLetter || "+-/*".contains($0) })
+let symbolTrailing = optionalPrefix(while: { !($0.isWhitespace || "[]{}('\"`,;)".contains($0)) })
 
 let symbolParser = zip(
-    whitespace,
-    Parser<String> { input in
-        let orig = input
-        let p1 = input.prefix(while: { $0.isLetter || "+-/*".contains($0) })
-        input.removeFirst(p1.count)
-        let p2 = input.prefix(while: { !($0.isWhitespace || "[]{}('\"`,;)".contains($0)) })
-        input.removeFirst(p2.count)
-        let s = String(p1 + p2)
-        guard s.count > 0 else { return nil }
-        return s
-    }
-).map { Token.symbol($0.1) }
+    anyWhitespace,
+    symbolInitial,
+    symbolTrailing
+).map { Token.symbol(String($0.1 + $0.2)) }
+
+let stringContents = Parser<String, Substring> { input in
+    var escaped = false
+    let prefix = input.prefix(while: { c in
+        if escaped {
+            escaped = false
+            return true
+        }
+        if c == "\\" {
+            escaped = true
+            return true
+        }
+        return c != doubleQuote.first!
+    })
+    input.removeFirst(prefix.count)
+    return String(prefix)
+}
 
 let doubleQuote = "\""
 let stringParser = zip(
+    anyWhitespace,
     literal(doubleQuote),
-    Parser<String> { input in
-        var escaped = false
-        let prefix = input.prefix(while: { c in
-            if escaped {
-                escaped = false
-                return true
-            }
-            if c == "\\" {
-                escaped = true
-                return true
-            }
-            return c != doubleQuote.first!
-        })
-        input.removeFirst(prefix.count)
-        return String(prefix)
-    },
+    stringContents,
     literal(doubleQuote)
-).map { Token.string($0.1) }
+).map { _, _, s, _ in Token.string(s) }
 
-let commentParser: Parser<Token> = zip(
+let commentContents = optionalPrefix(while: { $0.isNewline == false })
+let commentParser: Parser<Token, Substring> = zip(
+    anyWhitespace,
     literal(";"),
-    Parser<Void> { input in
-        input.removeFirst(input.prefix(while: { $0.isNewline == false }).count)
-    }
-).flatMap { _ in
-    Parser<Token> { _ in return Token.none }
-}
+    commentContents
+).flatMap { _ in always(.none) }
 
 func tokenize(_ input: String) -> Result<[Token], ASTError> {
     var parsedInput = input[...]
-    let parsers = [
+    let anyToken = oneOf([
         literal("(", .lparen),
         literal(")", .rparen),
         literal("[", .lsquare),
         literal("]", .rsquare),
+        literal("'", .tick),
+        literal("`", .backtick),
+        literal("~@", .twiddleAt),
+        literal("~", .twiddle),
         numberParser,
         symbolParser,
         stringParser,
         commentParser,
-    ]
-    var output: [Token] = []
-    while parsedInput.count > 0 {
-        var match: Token? = nil
-        for parser in parsers {
-            if let m = parser.run(&parsedInput) {
-                match = m
-                break
-            }
-        }
-        guard let m = match else {
-            break
-        }
-        switch m {
-        case .none: break
-        default: output.append(m)
-        }
-    }
-    if parsedInput.count > 0 {
-        return .failure(ASTError.tokenizerError("Could not parse, stopped at character \(input.count - parsedInput.count), near \(parsedInput.prefix(20))"))
-    }
-    return .success(output)
+    ])
+    let tokenizer = zeroOrMore(anyToken, separatedBy: anyWhitespace)
+    guard let matches = tokenizer.run(&parsedInput) else { return .failure(.tokenizerError("Could not parse, stopped at \(parsedInput.prefix(20))")) }
+    return .success(matches.filter { $0 != .none })
 }
