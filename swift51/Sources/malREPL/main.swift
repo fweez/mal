@@ -9,7 +9,7 @@ import Foundation
 import FunctionalUtilities
 import mal
 
-//initializationScript()
+initializationScript()
 
 while true {
     print("user> ", separator: "", terminator: "")

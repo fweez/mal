@@ -40,6 +40,7 @@ enum AST {
     case unquote
     case spliceunquote
     case defmacro
+    case macroexpand
 }
 
 extension AST: Equatable {
@@ -90,6 +91,7 @@ extension AST: CustomStringConvertible {
         case .unquote: return "unquote"
         case .spliceunquote: return "splice-unquote"
         case .defmacro: return "defmacro!"
+        case .macroexpand: return "macroexpand"
         }
     }
 }

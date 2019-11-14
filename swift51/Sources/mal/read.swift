@@ -44,6 +44,7 @@ let symbol = Parser<AST, [Token]> { input in
     case "unquote": return .unquote
     case "splice-unquote": return .spliceunquote
     case "defmacro!": return .defmacro
+    case "macroexpand": return .macroexpand
     default: return .symbol(s)
     }
 }

@@ -69,7 +69,8 @@ var replEnv: Environment = [
 
 public func initializationScript() {
     [
-        #"(def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) " nil)")))))"#
+        #"(def! load-file (fn* (f) (eval (read-string (str "(do " (slurp f) " nil)")))))"#,
+        #"(def! not (fn* (a) (if a false true)))"#
     ]
         .forEach(rep >>> { print($0) })
 }

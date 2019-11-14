@@ -18,8 +18,8 @@ enum EvalError: Error {
         switch self {
         case let .argumentMismatch(description, ast):
             return "\(description) (AST: \(ast))"
-        case let .unknownSymbol(symbol, environment):
-            return "'\(symbol)' not found (Environment: \(environment))"
+        case let .unknownSymbol(symbol, _):
+            return "'\(symbol)' not found"
         case let .listEvaluationError(description, ast, _):
             return "\(description) (AST: \(ast))"
         case let .defError(description, ast, _):
@@ -52,6 +52,7 @@ extension AST {
         case .do: return runDo(ast, environment)
         case .if: return runIf(ast, environment)
         case .quasiquote: return runQuasiquote(ast, environment)
+        case .macroexpand: return runMacroexpand(ast, environment)
         default: return .failure(.unknownSymbol("Tried to runForm -> AST with \(self)", environment))
         }
     }
@@ -60,8 +61,7 @@ extension AST {
         switch self {
         case .let: return runLet(ast, environment)
         default: return evalAST(ast, environment).flatMap({
-            print("Applying \($0)")
-            return apply($0, environment) })
+            apply($0, environment) })
         }
     }
     
@@ -81,7 +81,6 @@ extension AST {
 }
 
 func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
-    print("EVAL \(ast)")
     var ast = ast
     var environment = environment
     while true {
@@ -95,7 +94,7 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
             guard list.isEmpty == false else { return .success(ast) }
             let symbol = list.first!
             switch symbol {
-            case .def, .fn, .quote, .defmacro: return symbol.runForm(ast, environment)
+            case .def, .fn, .quote, .defmacro, .macroexpand: return symbol.runForm(ast, environment)
             case .do, .if, .quasiquote:
                 let result: Result<AST, EvalError> = symbol.runForm(ast, environment)
                 switch result {
@@ -107,6 +106,7 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
                 let result: Result<(AST, Environment?), EvalError> = symbol.runForm(ast, environment)
                 switch result {
                 case .failure(let err): return .failure(err)
+                case .success(let (newAST, newEnv)) where newEnv == nil: return .success(newAST)
                 case .success(let (newAST, newEnvironment)):
                     ast = newAST
                     environment = newEnvironment ?? environment
@@ -119,7 +119,6 @@ func EVAL(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
 }
 
 func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
-    print("evalAST \(ast)")
     switch ast {
     case .symbol(let symbol):
         guard let lookup = environment[symbol] else { return .failure(.unknownSymbol(symbol, environment)) }
@@ -141,7 +140,8 @@ func evalAST(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
                     return EVAL(elementAST, environment)
                         .map { .vector(resultList + [$0]) }
                 }
-        }    default: return .success(ast)
+        }
+    default: return .success(ast)
     }
 }
 
@@ -152,7 +152,6 @@ func extractListContents(_ ast: AST, _ environment: Environment, checkedBy predi
 }
 
 func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?), EvalError> {
-    print("apply \(ast)")
     return extractListContents(ast, environment) { list in
         guard list.isEmpty == false else { return .listEvaluationError("Expected list to have values in apply", ast, environment) }
         switch list.first {
@@ -166,7 +165,6 @@ func apply(_ ast: AST, _ environment: Environment) -> Result<(AST, Environment?)
         case let .function(ast: body, params: parameters, environment: environment, fn: _, isMacro: _):
             let bindings = zip(parameters, args)
                 .reduce([]) { return $0 + [$1.0, $1.1] }
-//            print("CREATING ENVIRONMENT FOR FUNCTION ARGUMENTS")
             return Environment.from(outer: environment, bindings: bindings)
                 .map { (body, $0) }
         case .builtin(let applyFn): return applyFn(args, environment).map { ($0, nil) }
@@ -340,35 +338,32 @@ func runQuasiquote(_ ast: AST, _ environment: Environment) -> Result<AST, EvalEr
             case .spliceunquote = firstItemContents.first! {
             guard firstItemContents.count == 2 else { return .failure(.quasiquoteError("expected 1 parameter to splice-unquote", ast)) }
             /// return a new list containing: a symbol named "concat", the second element of first element of ast (ast[0][1]), and the result of calling quasiquote with the second through last element of ast.
-            return runQuasiquote(.list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))]), environment)
-                .map { quasiquotedTail in
-                    .list([
-                        .symbol("concat"),
-                        firstItemContents[1],
-                        quasiquotedTail
-                    ])
-                }
+            return .success(.list([
+                .symbol("concat"),
+                firstItemContents[1],
+                .list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))])]))
         }
         
         /// otherwise: return a new list containing: a symbol named "cons", the result of calling quasiquote on first element of ast (ast[0]), and the result of calling quasiquote with the second through last element of ast.
-        return zip(
-            runQuasiquote(.list([.quasiquote, qqdItems.first!]), environment),
-            runQuasiquote(.list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))]), environment))
-            .map { qqdFirst, qqdTail in
-                .list([
-                    .symbol("cons"),
-                    qqdFirst,
-                    qqdTail
-                    ])
-            }
+        return .success(.list([
+            .symbol("cons"),
+            .list([.quasiquote, qqdItems.first!]),
+            .list([.quasiquote, .list(Array(qqdItems.suffix(from: 1)))])]))
     }
+}
+
+func runMacroexpand(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
+    extractListContents(ast, environment) { list in
+        guard list.count == 2 else { return .listEvaluationError("Expected list to have 2 values", ast, environment) }
+        guard case .macroexpand = list.first! else { return .argumentMismatch("macroexpand not first symbol!?", list) }
+        return nil
+    }
+    .flatMap { macroexpand($0[1], environment) }
 }
 
 func macroexpand(_ ast: AST, _ environment: Environment) -> Result<AST, EvalError> {
     var ast = ast
-    var env = environment
     while ast.isMacroCall(environment) {
-        print("macroexpand \(ast)")
         let expansionResult = extractListContents(ast, environment) { _ in nil } // can't fail if it passes .isMacroCall()
             .map { list -> AST in
                 guard case .symbol(let k) = list.first!,
@@ -378,15 +373,12 @@ func macroexpand(_ ast: AST, _ environment: Environment) -> Result<AST, EvalErro
                 }
                 return .list([function] + Array(list.suffix(from: 1)))
             }
-            .flatMap { evalAST($0, env) }
-            .flatMap { apply($0, env) }
+            .flatMap { EVAL($0, environment) }
         switch expansionResult {
-        case .success(let (expandedAST, expansionEnv)):
+        case .success(let expandedAST):
             ast = expandedAST
-            if let e = expansionEnv { env = e }
         case .failure(let err): return .failure(err)
         }
     }
-    print("macroexpand return \(ast)")
     return .success(ast)
 }
